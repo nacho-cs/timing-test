@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timing Consistency Test</title>
+    <style>
+      body {
+        background: #121212;
+        color: #ffffff;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        overflow: hidden;
+        user-select: none;
+      }
+      #game-container {
+        position: relative;
+        width: 600px;
+        height: 200px;
+        background: #1e1e1e;
+        border: 2px solid #444;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        cursor: crosshair;
+      }
+      #target-line {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: #00ff88;
+        transform: translateX(-50%);
+        /*box-shadow: 0 0 15px #00ff88;*/
+      }
+      #moving-bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        background: #ff4444;
+        /*border-radius: 5px;*/
+      }
+      #stats {
+        text-align: center;
+        background: #252525;
+        padding: 20px;
+        border-radius: 5px;
+        min-width: 400px;
+        /*border: 1px solid #333;*/
+      }
+      .stat-val {
+        font-weight: bold;
+        font-size: 1.5em;
+        color: #00ff88;
+      }
+      .sigma-label {
+        color: #888;
+        font-size: 0.9em;
+        margin-top: 10px;
+      }
+
+      .controls {
+        margin-top: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        align-items: center;
+      }
+      .slider-container {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        color: #888;
+      }
+      input[type="range"] {
+        cursor: pointer;
+        width: 200px;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        background: #444;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      button:hover {
+        background: #555;
+      }
+      .btn-share {
+        background: #0066cc;
+      }
+      .btn-share:hover {
+        background: #0077ee;
+      }
+    </style>
+  </head>
+  <body onmousedown="handleClick(event)">
+    <h1>Timing Consistency Test</h1>
+
+    <div id="game-container">
+      <div id="target-line"></div>
+      <div id="moving-bar"></div>
+    </div>
+
+    <div id="stats">
+      <div>Attempts: <span id="count">0</span></div>
+      <div>Avg. Error: <span id="avg" class="stat-val">0.0</span> ms</div>
+      <div>
+        Standard Deviation (&sigma;):
+        <span id="std" class="stat-val" style="color: #ff4444">0.00</span> ms
+      </div>
+
+      <div class="controls">
+        <div class="slider-container">
+          <span>Speed:</span>
+          <input
+            type="range"
+            id="speedSlider"
+            min="0.1"
+            max="2.0"
+            step="0.1"
+            value="0.5"
+          />
+          <span id="speedVal">0.5x</span>
+        </div>
+
+        <div class="button-group">
+          <button onclick="resetStats(event)">Reset</button>
+          <button class="btn-share" onclick="shareResults(event)">
+            Share Results (.png)
+          </button>
+        </div>
+      </div>
+      <div class="sigma-label">Higher speed makes timing harder and lower scores are better</div>
+    </div>
+
+    <script>
+      const bar = document.getElementById("moving-bar");
+      const countEl = document.getElementById("count");
+      const avgEl = document.getElementById("avg");
+      const stdEl = document.getElementById("std");
+      const speedSlider = document.getElementById("speedSlider");
+      const speedVal = document.getElementById("speedVal");
+
+      let errors = [];
+      let position = 0;
+      let direction = 1;
+      let speedMultiplier = 0.5;
+
+      // Listener for speed slider
+      speedSlider.addEventListener("input", (e) => {
+        speedMultiplier = parseFloat(e.target.value);
+        speedVal.innerText = speedMultiplier.toFixed(1) + "x";
+      });
+
+      function animate() {
+        position += speedMultiplier * direction;
+        if (position > 100 || position < 0) {
+          direction *= -1;
+        }
+        bar.style.left = position + "%";
+        requestAnimationFrame(animate);
+      }
+
+      function handleClick(e) {
+        // Prevent clicks on buttons or sliders from counting as errors
+        if (e.target.tagName === "BUTTON" || e.target.tagName === "INPUT")
+          return;
+
+        // Math: A pass (0 to 100%) at 1.0x speed takes ~100 frames.
+        // At 60fps, 1% of the bar width is approximately 16.6ms / speedMultiplier.
+        // We'll use 12ms as a standardized "feel" constant.
+        const errorPercent = position - 50;
+        const msFactor = 12 / speedMultiplier;
+        const errorMs = errorPercent * msFactor;
+
+        errors.push(errorMs);
+        updateStats();
+
+        // Visual feedback
+        bar.style.background = Math.abs(errorMs) < 15 ? "#00ff88" : "#ffaa00";
+        setTimeout(() => {
+          bar.style.background = "#ff4444";
+        }, 100);
+      }
+
+      function updateStats() {
+        if (errors.length === 0) {
+          countEl.innerText = "0";
+          avgEl.innerText = "0.0";
+          stdEl.innerText = "0.00";
+          return;
+        }
+        const n = errors.length;
+        const mean = errors.reduce((a, b) => a + b) / n;
+        const variance =
+          errors.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+        const stdDev = Math.sqrt(variance);
+
+        countEl.innerText = n;
+        avgEl.innerText = (mean > 0 ? "+" : "") + mean.toFixed(1);
+        stdEl.innerText = stdDev.toFixed(2);
+      }
+
+      function resetStats(e) {
+        e.stopPropagation();
+        errors = [];
+        updateStats();
+      }
+
+      function shareResults(e) {
+        e.stopPropagation();
+        if (errors.length < 3) {
+          alert("Need more data! Get at least 3 clicks.");
+          return;
+        }
+
+        const n = errors.length;
+        const mean = errors.reduce((a, b) => a + b) / n;
+        const variance =
+          errors.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+        const stdDev = Math.sqrt(variance);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 400;
+        canvas.height = 250;
+        const ctx = canvas.getContext("2d");
+
+        // BG
+        ctx.fillStyle = "#121212";
+        ctx.fillRect(0, 0, 400, 250);
+        ctx.strokeStyle = "#444";
+        ctx.strokeRect(5, 5, 390, 240);
+
+        // Text
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#888";
+        ctx.font = "16px Arial";
+        ctx.fillText("TIMING CONSISTENCY RESULT", 200, 40);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 20px Arial";
+        ctx.fillText(`Attempts: ${n} | Speed: ${speedMultiplier}x`, 200, 80);
+
+        ctx.fillStyle = "#00ff88";
+        ctx.font = "18px Arial";
+        ctx.fillText(`Avg Offset: ${mean.toFixed(2)}ms`, 200, 120);
+
+        ctx.fillStyle = "#ff4444";
+        ctx.font = "bold 40px Arial";
+        ctx.fillText(`${stdDev.toFixed(2)} ms`, 200, 190);
+        ctx.font = "14px Arial";
+        ctx.fillText("STANDARD DEVIATION (σ)", 200, 220);
+
+        const link = document.createElement("a");
+        link.download = `consistency_test_${stdDev.toFixed(1)}ms.png`;
+        link.href = canvas.toDataURL();
+        link.click();
+      }
+
+      animate();
+    </script>
+  </body>
+</html>
